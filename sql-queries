@@ -1,0 +1,196 @@
+import configparser
+
+
+# CONFIG
+config = configparser.ConfigParser()
+config.read('dwh.cfg')
+
+# DROP TABLES
+
+staging_events_table_drop = "drop table if exists staging_events"
+staging_songs_table_drop = "drop table if exists staging_songs"
+songplay_table_drop = "drop table if exists songplay"
+user_table_drop = "drop table if exists users cascade"
+song_table_drop = "drop table if exists song"
+artist_table_drop = "drop table if exists artist"
+time_table_drop = "drop table if exists time cascade"
+
+# CREATE STAGING TABLES
+
+staging_events_table_create= ("""   CREATE TABLE IF NOT EXISTS staging_events
+    (
+        event_key           INTEGER          IDENTITY(0,1),
+        artist              text,
+        auth                text,
+        firstName           text,
+        gender              text,
+        itemInSession       INTEGER,
+        lastName            text,
+        length              DOUBLE PRECISION,
+        level               text,
+        location            text,
+        method              text,
+        page                text,
+        registration        DECIMAL(15,1),
+        sessionId           INTEGER,
+        song                text,
+        status              INTEGER,
+        ts                  BIGINT,
+        userAgent           text,
+        userId              VARCHAR(22)
+    )
+""")
+
+staging_songs_table_create = (""" CREATE TABLE IF NOT EXISTS  staging_songs (
+       num_songs           INT,
+       artist_id           text ,
+       artist_latitude     NUMERIC,
+	   artist_longitude    NUMERIC,
+       artist_location     text,
+       artist_name         text,
+	   song_id             text,
+	   title               text,
+	   duration            NUMERIC,
+       year                INT)
+       """)
+
+
+
+# CREATE DATAWAREHOUSE TABLES
+
+songplay_table_create = ("""  CREATE TABLE IF NOT EXISTS songplays (
+        songplay_id INTEGER IDENTITY(0,1) CONSTRAINT songp_pk primary key not null ,
+        start_time timestamp references time(starttime) sortkey not null,
+        user_id int references users(userId) not null ,
+        level text distkey,
+        song_id text references songs(song_id) not null,
+        artist_id text references artists(artist_id) not null,
+        session_id int,
+        location text ,
+        user_agent text)  
+""")
+
+user_table_create = ("""  CREATE TABLE IF NOT EXISTS users (
+        userId int CONSTRAINT user_pk primary key not null sortkey,
+        firstName text,
+        lastName text,
+        gender text,
+        level text)
+""")
+
+song_table_create = (""" CREATE TABLE IF NOT EXISTS songs (
+        song_id text CONSTRAINT song_pk primary key not null sortkey,
+        title text,
+        artist_id text,
+        year int,
+        duration NUMERIC)
+""")
+
+artist_table_create = ("""  CREATE TABLE IF NOT EXISTS artists (
+        artist_id text CONSTRAINT artist_pk primary key not null sortkey,
+        name text,
+        location text,
+        lattitude NUMERIC,
+        longitude NUMERIC)
+""")
+
+time_table_create = ("""  CREATE TABLE IF NOT EXISTS time (
+        starttime timestamp  CONSTRAINT time_pk primary key not null sortkey,
+        ts BIGINT  ,
+        hour int,
+        day int,
+        week int,
+        month int,
+        year int,
+        weekday int)
+""")
+
+# STAGING DATA COPY FROM S3 TO REDSHIFT STAGING TABLES
+
+
+staging_events_copy = ("""
+    COPY     staging_events
+    FROM     {}
+    IAM_ROLE {}
+    JSON     {}
+""").format(config['S3']['LOG_DATA'],
+            config['IAM_ROLE']['ARN'],
+            config['S3']['LOG_JSONPATH']
+           )
+
+staging_songs_copy = ("""
+    COPY     staging_songs
+    FROM     {}
+    IAM_ROLE {}
+    JSON     'auto'
+""").format(config['S3']['SONG_DATA'],
+            config['IAM_ROLE']['ARN']
+           )
+
+
+
+# FINAL TABLES INSERT
+
+
+user_table_insert = (""" insert into users (userId ,firstName ,lastName ,gender ,level )
+        SELECT DISTINCT userId::integer,firstName,lastName,gender,level
+        FROM staging_events where  page='NextSong' 
+""")
+
+song_table_insert = (""" INSERT INTO SONGS (song_id ,title ,artist_id ,year , duration )
+SELECT DISTINCT song_id,title,artist_id,year,duration
+FROM  staging_songs
+""")
+
+artist_table_insert = (""" INSERT INTO artists (artist_id ,name ,location ,lattitude , longitude )
+SELECT  DISTINCT artist_id,artist_name,artist_location,artist_latitude,artist_longitude
+FROM  staging_songs    """)
+
+# some syntax help was from slack
+time_table_insert = ("""
+
+INSERT INTO time 
+
+(starttime,ts , hour, day, week, month, year, weekday) 
+
+SELECT starttime, 
+    ts, 
+
+   EXTRACT(hr from starttime), 
+
+   EXTRACT(d from starttime), 
+
+   EXTRACT(w from starttime), 
+
+   EXTRACT(mon from starttime), 
+
+   EXTRACT(yr from starttime), 
+
+   EXTRACT(weekday from starttime) 
+
+FROM (SELECT DISTINCT  ts, TIMESTAMP 'epoch' + ts/1000 *INTERVAL '1 second' as starttime 
+
+     FROM staging_events s)""")
+
+songplay_table_insert = (""" insert into songplays 
+								(start_time  ,user_id  ,level ,song_id  ,artist_id ,session_id , location  ,user_agent ) 
+	   SELECT TIMESTAMP 'epoch' + SE.ts/1000 *INTERVAL '1 second' ,
+	   SE.userId::integer,
+	   SE.level,
+	   SS.song_id,
+	   SS.artist_id,
+	   SE.sessionId,
+	   SE.location ,
+	   SE.useragent 
+	   FROM staging_events SE 
+	   JOIN staging_songs SS ON ( SE.song = SS.title and SE.artist=SS.artist_name)
+	   WHERE SE.page='NextSong' 
+""")
+
+# QUERY LISTS
+
+create_table_queries = [staging_events_table_create, staging_songs_table_create, user_table_create, song_table_create, artist_table_create, time_table_create,songplay_table_create]
+drop_table_queries = [staging_events_table_drop, staging_songs_table_drop, songplay_table_drop, song_table_drop, artist_table_drop, time_table_drop,user_table_drop]
+copy_table_queries = [staging_events_copy, staging_songs_copy]
+insert_table_queries = [ user_table_insert, song_table_insert, artist_table_insert, time_table_insert,songplay_table_insert]
+
