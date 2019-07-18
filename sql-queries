@@ -45,12 +45,12 @@ staging_songs_table_create = (""" CREATE TABLE IF NOT EXISTS  staging_songs (
        num_songs           INT,
        artist_id           text ,
        artist_latitude     NUMERIC,
-	   artist_longitude    NUMERIC,
+       artist_longitude    NUMERIC,
        artist_location     text,
        artist_name         text,
-	   song_id             text,
-	   title               text,
-	   duration            NUMERIC,
+       song_id             text,
+       title               text,
+       duration            NUMERIC,
        year                INT)
        """)
 
@@ -133,47 +133,37 @@ staging_songs_copy = ("""
 
 
 user_table_insert = (""" insert into users (userId ,firstName ,lastName ,gender ,level )
-        SELECT DISTINCT userId::integer,firstName,lastName,gender,level
-        FROM staging_events where  page='NextSong' 
-""")
+        		SELECT DISTINCT userId::integer,firstName,lastName,gender,level
+       			 FROM staging_events where  page='NextSong' 
+		     """)
 
 song_table_insert = (""" INSERT INTO SONGS (song_id ,title ,artist_id ,year , duration )
-SELECT DISTINCT song_id,title,artist_id,year,duration
-FROM  staging_songs
-""")
+                         SELECT DISTINCT song_id,title,artist_id,year,duration
+                         FROM  staging_songs
+                     """)
 
 artist_table_insert = (""" INSERT INTO artists (artist_id ,name ,location ,lattitude , longitude )
-SELECT  DISTINCT artist_id,artist_name,artist_location,artist_latitude,artist_longitude
-FROM  staging_songs    """)
+                           SELECT  DISTINCT artist_id,artist_name,artist_location,artist_latitude,artist_longitude
+                           FROM  staging_songs
+		      """)
 
 # some syntax help was from slack
 time_table_insert = ("""
-
 INSERT INTO time 
-
 (starttime,ts , hour, day, week, month, year, weekday) 
-
 SELECT starttime, 
     ts, 
-
    EXTRACT(hr from starttime), 
-
    EXTRACT(d from starttime), 
-
    EXTRACT(w from starttime), 
-
    EXTRACT(mon from starttime), 
-
    EXTRACT(yr from starttime), 
-
    EXTRACT(weekday from starttime) 
-
-FROM (SELECT DISTINCT  ts, TIMESTAMP 'epoch' + ts/1000 *INTERVAL '1 second' as starttime 
-
-     FROM staging_events s)""")
+   FROM (SELECT DISTINCT  ts, TIMESTAMP 'epoch' + ts/1000 *INTERVAL '1 second' as starttime 
+         FROM staging_events s)""")
 
 songplay_table_insert = (""" insert into songplays 
-								(start_time  ,user_id  ,level ,song_id  ,artist_id ,session_id , location  ,user_agent ) 
+	                    (start_time  ,user_id  ,level ,song_id  ,artist_id ,session_id , location  ,user_agent ) 
 	   SELECT TIMESTAMP 'epoch' + SE.ts/1000 *INTERVAL '1 second' ,
 	   SE.userId::integer,
 	   SE.level,
